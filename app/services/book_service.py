@@ -20,7 +20,22 @@ def get_book(book_id):
 def update_book(book_id, updates):
     updates["updated_at"] = datetime.utcnow()
     db.books.update_one({"_id": ObjectId(book_id)}, {"$set": updates})
-    return get_book(book_id)
+    book = db.books.find_one({"_id": ObjectId(book_id)})
+    if book:
+        book["id"] = str(book["_id"])
+        del book["_id"]
+        return {
+            "id": book["id"],
+            "title": book["title"],
+            "author": book["author"],
+            "isbn": book["isbn"],
+            "copies": book["copies"],
+            "available_copies": book["available_copies"],
+            "created_at": book["created_at"].isoformat() + "Z",
+            "updated_at": book["updated_at"].isoformat() + "Z"
+        }
+    return None
+
 
 def delete_book(book_id):
     db.books.delete_one({"_id": ObjectId(book_id)})

@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 
 class BookCreate(BaseModel):
     title: str
@@ -14,3 +15,5 @@ class BookUpdate(BaseModel):
 class BookOut(BookCreate):
     id: str
     available_copies: int
+    created_at: datetime
+    updated_at: datetime

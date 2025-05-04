@@ -7,7 +7,12 @@ router = APIRouter(prefix="/api/books", tags=["Books"])
 @router.post("/", response_model=BookOut)
 def add_book(book: BookCreate):
     book_id = book_service.create_book(book.dict())
-    return {**book.dict(), "id": book_id, "available_copies": book.copies}
+    # ⛔ Old return (missing timestamps)
+    # return {**book.dict(), "id": book_id, "available_copies": book.copies}
+
+    # ✅ New return: fetch full book from DB including timestamps
+    return book_service.get_book(book_id)
+
 
 @router.get("/{book_id}", response_model=BookOut)
 def get_book(book_id: str):
