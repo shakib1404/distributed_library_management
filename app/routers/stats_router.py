@@ -1,7 +1,8 @@
 from fastapi import APIRouter
-from app.services import stats_service
+from app.services.stats_service import StatisticsService
 
 router = APIRouter(prefix="/api/stats", tags=["Statistics"])
+stats_service = StatisticsService()
 
 @router.get("/books/popular")
 def get_popular_books():

@@ -1,9 +1,15 @@
-
 from app.database import db
 from bson import ObjectId
 from datetime import datetime, timedelta
 
+from app.services.book_service import BookService
+from app.services.user_service import UserService
+
 class LoanService:
+    def __init__(self):
+        self.book_service = BookService()
+        self.user_service = UserService()
+
     @staticmethod
     def parse_loan_document(doc, include_extensions=False):
         result = {
@@ -24,10 +30,7 @@ class LoanService:
         data["status"] = "ACTIVE"
         data["extensions_count"] = 0
         result = db.loans.insert_one(data)
-        db.books.update_one(
-            {"_id": ObjectId(data["book_id"]), "available_copies": {"$gt": 0}},
-            {"$inc": {"available_copies": -1}}
-        )
+        self.book_service.decrement_available_copy(data["book_id"])
         loan = db.loans.find_one({"_id": result.inserted_id})
         return self.parse_loan_document(loan)
 
@@ -37,10 +40,7 @@ class LoanService:
             {"$set": {"return_date": datetime.utcnow(), "status": "RETURNED"}}
         )
         loan = db.loans.find_one({"_id": ObjectId(loan_id)})
-        db.books.update_one(
-            {"_id": ObjectId(loan["book_id"])},
-            {"$inc": {"available_copies": 1}}
-        )
+        self.book_service.increment_available_copy(loan["book_id"])
         return self.parse_loan_document(loan)
 
     def get_loan_by_id(self, loan_id):
@@ -53,14 +53,10 @@ class LoanService:
         cursor = db.loans.find({"user_id": user_id})
         result = []
         for loan in cursor:
-            book = db.books.find_one({"_id": ObjectId(loan["book_id"])})
+            book = self.book_service.get_book_summary(loan["book_id"])
             result.append({
                 "id": str(loan["_id"]),
-                "book": {
-                    "id": str(book["_id"]),
-                    "title": book["title"],
-                    "author": book["author"]
-                },
+                "book": book,
                 "issue_date": loan["issue_date"],
                 "due_date": loan["due_date"],
                 "return_date": loan.get("return_date"),
@@ -73,20 +69,12 @@ class LoanService:
         cursor = db.loans.find({"due_date": {"$lt": today}, "status": "ACTIVE"})
         result = []
         for loan in cursor:
-            user = db.users.find_one({"_id": ObjectId(loan["user_id"])})
-            book = db.books.find_one({"_id": ObjectId(loan["book_id"])})
+            user = self.user_service.get_user_summary(loan["user_id"])
+            book = self.book_service.get_book_summary(loan["book_id"])
             result.append({
                 "id": str(loan["_id"]),
-                "user": {
-                    "id": str(user["_id"]),
-                    "name": user["name"],
-                    "email": user["email"]
-                },
-                "book": {
-                    "id": str(book["_id"]),
-                    "title": book["title"],
-                    "author": book["author"]
-                },
+                "user": user,
+                "book": book,
                 "issue_date": loan["issue_date"],
                 "due_date": loan["due_date"],
                 "days_overdue": (today - loan["due_date"]).days
@@ -104,3 +92,42 @@ class LoanService:
             return_document=True
         )
         return self.parse_loan_document(updated, include_extensions=True)
+
+    def get_borrowed_books_pipeline(self):
+        return [
+            {"$group": {"_id": "$book_id", "borrow_count": {"$sum": 1}}},
+            {"$sort": {"borrow_count": -1}},
+            {"$limit": 10}
+        ]
+
+    def get_active_users_pipeline(self):
+        return [
+            {"$group": {"_id": "$user_id", "books_borrowed": {"$sum": 1}}},
+            {"$sort": {"books_borrowed": -1}},
+            {"$limit": 10}
+        ]
+
+    def aggregate_loans(self, pipeline):
+        return db.loans.aggregate(pipeline)
+
+    def count_active_loans(self, user_id=None):
+        query = {"status": "ACTIVE"}
+        if user_id:
+            query["user_id"] = user_id
+        return db.loans.count_documents(query)
+
+   
+
+    def count_overdue_loans(self):
+     now = datetime.utcnow()
+     return db.loans.count_documents({
+        "due_date": {"$lt": now},
+        "returned_at": None  # only those not returned
+      })
+
+
+    def count_loans_since(self, since_time):
+        return db.loans.count_documents({"issue_date": {"$gte": since_time}})
+
+    def count_returns_since(self, since_time):
+        return db.loans.count_documents({"return_date": {"$gte": since_time}})
